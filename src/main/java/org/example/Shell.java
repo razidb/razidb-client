@@ -7,9 +7,11 @@ import picocli.CommandLine;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
 
@@ -60,13 +62,39 @@ public class Shell implements Runnable{
 
     boolean authenticated = false;
 
+    JSONParser jsonParser;
+
+    public static void main(String[] args) {
+        int exitCode = new CommandLine(new Shell()).execute(args);
+        System.exit(exitCode);
+    }
+
+    public Shell(){}
+
+
     @Override
     public void run() {
         /* Main function where command is executed */
+        Socket socket;
+
+        try {
+//            socket = new Socket("46.101.116.182", 4999);
+            socket = new Socket("localhost", 4999);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        try {
+            this.out = new DataOutputStream(socket.getOutputStream());
+            this.in = new DataInputStream(socket.getInputStream());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         // try to authenticate the user
         try{
             requestToConnect();
+            readInputStream();
         }
         catch (IOException exception){
             System.out.println("failed to authenticate: " + exception.getMessage());
@@ -76,9 +104,12 @@ public class Shell implements Runnable{
             System.out.println("access denied");
             System.exit(401);
         }
+        else{
+            System.out.println(username + " was authenticated");
+        }
 
         // init JSON parser
-        JSONParser jsonParser = new JSONParser();
+        jsonParser = new JSONParser();
         Scanner sc= new Scanner(System.in);
         JSONObject payload = null;
 
@@ -113,6 +144,7 @@ public class Shell implements Runnable{
                 // Selection Operation Related Queries
                 if (Objects.equals(operation, "all") || Objects.equals(operation, "find")){
                     operationType = Operation.SELECT.label;
+                    payload = jsonQuery;
                 }
                 else if (Objects.equals(operation, "insertOne") || Objects.equals(operation, "insertMany")){
                     operationType = Operation.INSERT.label;
@@ -226,6 +258,7 @@ public class Shell implements Runnable{
         catch (IOException exception){
             resStatusCode = 500;
             resData = exception.getMessage();
+            System.out.println("Something went wrong: " + exception);
         }
 
     }
@@ -236,8 +269,8 @@ public class Shell implements Runnable{
 
         operationType = 'c'; // c for connect
         reqData = "{" +
-            "\"username\": " + username + ", " +
-            "\"password\": " + password + "," +
+            "\"username\": \"" + username + "\", " +
+            "\"password\": \"" + password + "\"" +
         "}";
         reqDataBytes = reqData.getBytes(StandardCharsets.UTF_8);
         out.writeChar(dataType);
@@ -249,10 +282,10 @@ public class Shell implements Runnable{
 
     void handleSelectQueryReq(JSONObject payload) throws IOException {
         reqData = "{" +
-            "\"type\": \"document\", " +
-            "\"database\":" + database + "," +
-            "\"collection\":" + collection + "," +
-            "\"payload\":" + payload +
+//            "\"type\": \"document\", " +
+            "\"database\": \"" + database + "\"," +
+            "\"collection\": \"" + collection + "\"," +
+            "\"payload\":" + payload.toJSONString() +
         "}";
 
         reqDataBytes = reqData.getBytes(StandardCharsets.UTF_8);
@@ -264,10 +297,10 @@ public class Shell implements Runnable{
     }
     void handleUpdateQueryReq(JSONObject payload) throws IOException {
         reqData = "{" +
-            "\"type\":" + payload.get("type") + ", " +
+            "\"type\": \"" + payload.get("type") + "\", " +
             "\"database\":" + database + "," +
             "\"collection\":" + collection + "," +
-            "\"payload\":" + payload.get("payload") +
+            "\"payload\":" + new JSONObject((Map) payload.get("payload")).toJSONString() +
         "}";
 
         reqDataBytes = reqData.getBytes(StandardCharsets.UTF_8);
@@ -279,7 +312,7 @@ public class Shell implements Runnable{
     }
     void handleInsertQueryReq(JSONObject payload) throws IOException {
         reqData = "{" +
-            " \"type\":" + payload.get("type") + ", " +
+            " \"type\": \"" + payload.get("type") + "\", " +
             "\"database\":" + database + "," +
             "\"collection\":" + collection + "," +
             "\"payload\":" + payload.get("payload") +
@@ -294,7 +327,7 @@ public class Shell implements Runnable{
     }
     void handleDeleteQueryReq(JSONObject payload) throws IOException {
         reqData = "{" +
-            " \"type\":" + payload.get("type") + ", " +
+            " \"type\":\n" + payload.get("type") + "\n, " +
             "\"database\":" + database + "," +
             "\"collection\":" + collection + "," +
             "\"payload\":" + payload.get("payload") +
